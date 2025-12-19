@@ -15,9 +15,14 @@ import matplotlib.pyplot as plt
 
 def load_data():
     """Load data from the CSV files referundum/regions/departments."""
-    referendum = pd.DataFrame({})
-    regions = pd.DataFrame({})
-    departments = pd.DataFrame({})
+    referendum = pd.read_csv(
+        'data/referendum.csv', sep=';', dtype={'Department code': str}
+    )
+    regions = pd.read_csv('data/regions.csv', dtype={'code': str})
+    departments = pd.read_csv(
+        'data/departments.csv',
+        dtype={'code': str, 'region_code': str}
+    )
 
     return referendum, regions, departments
 
@@ -29,20 +34,52 @@ def merge_regions_and_departments(regions, departments):
     ['code_reg', 'name_reg', 'code_dep', 'name_dep']
     """
 
-    return pd.DataFrame({})
+    regions_df = regions[['code', 'name']].copy()
+    regions_df['code'] = regions_df['code'].astype(str).str.zfill(2)
+    regions_df = regions_df.rename(columns={'code': 'code_reg',
+                                            'name': 'name_reg'})
+
+    departments_df = departments[['code', 'name', 'region_code']].copy()
+    departments_df['code'] = departments_df['code'].astype(str).str.zfill(2)
+    departments_df['region_code'] = departments_df['region_code'].astype(str)
+    numeric_region_codes = departments_df['region_code'].str.isdigit()
+    departments_df.loc[numeric_region_codes, 'region_code'] = (
+        departments_df.loc[numeric_region_codes, 'region_code'].str.zfill(2)
+    )
+    departments_df = departments_df.rename(
+        columns={'code': 'code_dep', 'name': 'name_dep'}
+    )
+
+    merged = departments_df.merge(
+        regions_df, left_on='region_code', right_on='code_reg',
+        how='left', validate='many_to_one'
+    )
+
+    return merged[['code_reg', 'name_reg', 'code_dep', 'name_dep']]
 
 
 def merge_referendum_and_areas(referendum, regions_and_departments):
-    """Merge referendum and regions_and_departments in one DataFrame.
+    """Merge referendum data with territorial info, excluding overseas areas."""
 
-    You can drop the lines relative to DOM-TOM-COM departments, and the
-    french living abroad, which all have a code that contains `Z`.
+    referendum_df = referendum.copy()
+    referendum_df['Department code'] = (
+        referendum_df['Department code'].astype(str).str.zfill(2)
+    )
+    french_abroad_mask = referendum_df['Department code'].str.contains(
+        'Z', na=False
+    )
+    referendum_df = referendum_df.loc[~french_abroad_mask]
 
-    DOM-TOM-COM departments are departements that are remote from metropolitan
-    France, like Guadaloupe, Reunion, or Tahiti.
-    """
+    merged = referendum_df.merge(
+        regions_and_departments,
+        left_on='Department code',
+        right_on='code_dep',
+        how='inner',
+        validate='many_to_one'
+    )
+    dom_tom_com_mask = merged['code_dep'].str.len() > 2
 
-    return pd.DataFrame({})
+    return merged.loc[~dom_tom_com_mask].reset_index(drop=True)
 
 
 def compute_referendum_result_by_regions(referendum_and_areas):
@@ -72,7 +109,22 @@ def plot_referendum_map(referendum_result_by_regions):
     * Return a gpd.GeoDataFrame with a column 'ratio' containing the results.
     """
 
-    return gpd.GeoDataFrame({})
+    gdf_regions = gpd.read_file('data/regions.geojson')
+    gdf_regions['code'] = gdf_regions['code'].astype(str).str.zfill(2)
+
+    referendum_regions = referendum_result_by_regions.reset_index()
+    merged = gdf_regions.merge(
+        referendum_regions,
+        left_on='code',
+        right_on='code_reg',
+        how='left'
+    )
+    expressed = merged['Choice A'] + merged['Choice B']
+    merged['ratio'] = merged['Choice A'] / expressed
+    merged.loc[expressed == 0, 'ratio'] = pd.NA
+    merged.plot(column='ratio', legend=True, cmap='RdYlBu_r')
+
+    return merged
 
 
 if __name__ == "__main__":

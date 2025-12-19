@@ -46,13 +46,20 @@ def merge_referendum_and_areas(referendum, regions_and_departments):
 
 
 def compute_referendum_result_by_regions(referendum_and_areas):
-    """Return a table with the absolute count for each region.
+    """Return a table with the absolute count for each region."""
 
-    The return DataFrame should be indexed by `code_reg` and have columns:
-    ['name_reg', 'Registered', 'Abstentions', 'Null', 'Choice A', 'Choice B']
-    """
+    vote_columns = [
+        'Registered', 'Abstentions', 'Null', 'Choice A', 'Choice B'
+    ]
+    grouped = (
+        referendum_and_areas
+        .groupby(['code_reg', 'name_reg'], sort=False)[vote_columns]
+        .sum()
+        .reset_index()
+    )
+    ordered_columns = ['name_reg'] + vote_columns
 
-    return pd.DataFrame({})
+    return grouped.set_index('code_reg')[ordered_columns]
 
 
 def plot_referendum_map(referendum_result_by_regions):
